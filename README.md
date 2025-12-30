@@ -1,73 +1,93 @@
-# Welcome to your Lovable project
+## 💰 पैसा Buddy – Your Smart AI Financial Companion
 
-## Project info
+**पैसा Buddy** is an AI-powered financial coaching platform designed to help individuals make smarter financial decisions by understanding their spending habits, income patterns, and financial goals. It is especially built for gig workers, informal sector employees, students, and everyday users who deal with irregular income and dynamic expenses.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+The platform acts as a **personal finance buddy**, offering proactive insights, smart budgeting, automated expense tracking, and financial literacy — all in one secure and user-friendly application.
 
-## How can I edit this code?
+---
 
-There are several ways of editing your application.
+## 🚀 Key Features
 
-**Use Lovable**
+* **AI-Powered Budgeting**
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+  * Personalized budgets based on income type and spending behavior
+  * Adaptive budget planning for irregular and gig-based incomes
 
-Changes made via Lovable will be committed automatically to this repo.
+* **Automatic Transaction Tracking**
 
-**Use your preferred IDE**
+  * OCR-based bill and document scanning
+  * SMS-based transaction detection
+  * Auto-categorization into Needs, Essentials, and Wants
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+* **Smart Financial Insights**
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+  * Irregular spending pattern detection
+  * Overspending alerts and saving recommendations
+  * AI-driven financial tips
 
-Follow these steps:
+* **Visual Analytics Dashboard**
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+  * Interactive charts and graphs
+  * Monthly and category-wise expense breakdown
+  * Clear insights into financial habits
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+* **Stock Portfolio Tracking**
 
-# Step 3: Install the necessary dependencies.
-npm i
+  * Track investments and portfolio performance
+  * Simple analytics for better understanding of holdings
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+* **Multi-Agent AI System**
 
-**Edit a file directly in GitHub**
+  * Insights Agent for recommendations and analytics
+  * Budget Agent for goal-based planning
+  * OCR Agent for extracting transactions
+  * Auto-Categorization Agent for expense classification
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+* **Financial Literacy & Learning**
 
-**Use GitHub Codespaces**
+  * Learn modules for financial awareness
+  * Quizzes to improve money management skills
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+* **User–Consultant Chat**
 
-## What technologies are used for this project?
+  * Secure chat for financial guidance
+  * Multi-role support (User, Consultant, Admin)
 
-This project is built with:
+* **Security & Accessibility**
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+  * Encrypted user data
+  * Biometric-ready authentication support
+  * Multilingual support (English, Hindi, Marathi)
 
-## How can I deploy this project?
+---
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## 🎯 Problem Statement
 
-## Can I connect a custom domain to my Lovable project?
+Many people struggle with managing finances due to irregular income, lack of financial awareness, and manual expense tracking. **पैसा Buddy** addresses this gap by providing an intelligent, automated, and proactive financial assistant that simplifies money management and promotes smarter financial behavior.
 
-Yes, you can!
+---
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## 🛠️ Tech Stack (Planned / Implemented)
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+* **Frontend:** Modern responsive web & app UI
+* **Backend:** API-based scalable architecture
+* **AI/ML:** Financial insights, recommendations, and pattern detection
+* **OCR:** Transaction extraction from documents
+* **Database:** Secure and structured financial data storage
+
+---
+
+## 🌍 Target Users
+
+* Gig and freelance workers
+* Informal sector employees
+* Students and first-time earners
+* Anyone seeking better financial discipline
+
+---
+
+## 📌 Vision
+
+To empower users with financial clarity, confidence, and control by transforming complex financial data into simple, actionable insights — making financial wellness accessible to everyone.
+
+---
