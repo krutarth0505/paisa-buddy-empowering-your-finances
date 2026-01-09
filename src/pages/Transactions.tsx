@@ -147,6 +147,65 @@ const Transactions = () => {
     toast.success("All transactions deleted");
   };
 
+  // Smart category detection from transaction name
+  const detectCategory = (name: string, amount: number): { category: string; type: Transaction["type"] } => {
+    const lower = name.toLowerCase();
+    
+    // Food & Dining
+    if (/swiggy|zomato|blinkit|bigbasket|zepto|dunzo|grofers|instamart|food|restaurant|hotel|cafe|pizza|dominos|mcdonalds|kfc|burger|biryani|idli|dosa|rasoi|dhaba|canteen|mess|tiffin|kitchen|bakery|sweet|milk|grocery|vegetables|fruits|meat|chicken|mutton|fish/.test(lower)) {
+      return { category: "Food & Dining", type: amount >= 0 ? "Income" : "Essentials" };
+    }
+    
+    // Transport
+    if (/irctc|railway|railways|metro|uber|ola|rapido|petrol|diesel|fuel|parking|toll|fastag|bus|cab|taxi|auto|rickshaw|flight|airline|indigo|spicejet|vistara|airindia/.test(lower)) {
+      return { category: "Transport", type: amount >= 0 ? "Income" : "Needs" };
+    }
+    
+    // Shopping
+    if (/amazon|flipkart|myntra|ajio|meesho|shopsy|nykaa|tata.*cliq|croma|reliance|dmart|mall|mart|store|shop|retail|fashion|clothes|electronics|mobile|phone|laptop|gadget|appliance/.test(lower)) {
+      return { category: "Shopping", type: amount >= 0 ? "Income" : "Wants" };
+    }
+    
+    // Entertainment & Subscriptions
+    if (/netflix|spotify|prime|hotstar|disney|youtube|zee5|sonyliv|jiocinema|gaana|wynk|apple.*music|gaming|game|movie|cinema|pvr|inox|multiplex|concert|event|ticket/.test(lower)) {
+      return { category: "Entertainment", type: amount >= 0 ? "Income" : "Wants" };
+    }
+    
+    // Bills & Utilities
+    if (/electricity|electric|power|water|gas|internet|broadband|wifi|jio|airtel|vodafone|vi|bsnl|tata.*sky|dish|dth|recharge|postpaid|prepaid|bill|utility/.test(lower)) {
+      return { category: "Bills & Utilities", type: amount >= 0 ? "Income" : "Essentials" };
+    }
+    
+    // Healthcare
+    if (/medical|medicine|pharmacy|hospital|doctor|clinic|health|apollo|medplus|netmeds|pharmeasy|1mg|diagnostic|lab|test|scan|xray|consultation|dentist|eye/.test(lower)) {
+      return { category: "Healthcare", type: amount >= 0 ? "Income" : "Needs" };
+    }
+    
+    // Investment & Finance
+    if (/mutual.*fund|mf|sip|iccl|grow|zerodha|upstox|angel|paytm.*money|kuvera|coin|ipo|nps|ppf|fd|fixed.*deposit|rd|recurring|lum.*sum|investment|trading|stock|share|demat/.test(lower)) {
+      return { category: "Investment", type: amount >= 0 ? "Income" : "Essentials" };
+    }
+    
+    // Transfers (UPI to person names - usually personal transfers)
+    if (/^upi\s+[a-z]+\s+[a-z]+/.test(lower) && !/bank|ltd|pvt|india|service|store|shop|medical|hotel|restaurant/.test(lower)) {
+      if (amount >= 0) {
+        return { category: "Income", type: "Income" };
+      }
+      return { category: "Transfer", type: "Needs" };
+    }
+    
+    // Salary / Income patterns
+    if (/salary|credit.*ach|neft.*credit|imps.*credit|bonus|incentive|reimbursement|refund/.test(lower)) {
+      return { category: "Income", type: "Income" };
+    }
+    
+    // Default
+    if (amount >= 0) {
+      return { category: "Income", type: "Income" };
+    }
+    return { category: "Other", type: "Essentials" };
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -166,7 +225,14 @@ const Transactions = () => {
       const requiredStandard = ["name", "category", "amount", "date", "type"];
       const isStandard = requiredStandard.every((key) => header.includes(key));
 
-      const isBankExport = header.includes("particulars") && (header.includes("debit") || header.includes("credit"));
+      // Bank export detection - supports multiple formats:
+      // 1. Date, Particulars, Debit, Credit, Balance
+      // 2. Date, Particulars, Amount, Balance (like user's CSV)
+      const isBankExport = header.includes("particulars") && (
+        header.includes("debit") || 
+        header.includes("credit") || 
+        header.includes("amount")
+      );
 
       const dataLines = (isStandard || isBankExport) ? lines.slice(1) : lines;
 
@@ -196,6 +262,7 @@ const Transactions = () => {
           const particulars = getValue(cells, "particulars", 1);
           const debitRaw = getValue(cells, "debit", 2);
           const creditRaw = getValue(cells, "credit", 3);
+          const amountRaw = getValue(cells, "amount", 2); // For CSV with single Amount column
           const dateRaw = getValue(cells, "date", 0);
 
           const parseAmount = (val: string) => {
@@ -206,19 +273,29 @@ const Transactions = () => {
 
           const debit = parseAmount(debitRaw);
           const credit = parseAmount(creditRaw);
-
+          
           let amount = 0;
-          if (debit && !credit) amount = -Math.abs(debit);
-          else if (credit && !debit) amount = Math.abs(credit);
-          else amount = credit - debit;
+          // Check if there's a single Amount column (like in the user's CSV)
+          if (header.includes("amount") && amountRaw) {
+            amount = parseAmount(amountRaw);
+          } else if (debit && !credit) {
+            amount = -Math.abs(debit);
+          } else if (credit && !debit) {
+            amount = Math.abs(credit);
+          } else {
+            amount = credit - debit;
+          }
+
+          // Use smart category detection
+          const detected = detectCategory(particulars, amount);
 
           return {
             id: idx + 1,
             name: particulars || `Transaction ${idx + 1}`,
-            category: particulars || "Other",
+            category: detected.category,
             amount,
             date: dateRaw || new Date().toISOString().slice(0, 10),
-            type: amount >= 0 ? "Income" : "Essentials",
+            type: detected.type,
           };
         }
 
@@ -235,7 +312,7 @@ const Transactions = () => {
       setTransactionsData(normalized);
       toast.success(`Imported ${normalized.length} transactions from CSV`);
     } catch (error) {
-      toast.error("Upload a CSV with columns: name, category, amount, date, type or a bank export with Date, Particulars, Debit/Credit.");
+      toast.error("Upload a CSV with columns: name, category, amount, date, type OR a bank export with Date, Particulars, Amount/Debit/Credit");
     } finally {
       event.target.value = "";
     }

@@ -21,22 +21,36 @@ const Signup = () => {
   const [incomeType, setIncomeType] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { signUp, isSupabaseEnabled } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     if (!name || !email || !password || !incomeType) {
-      toast("Please complete all fields to continue.");
+      toast.error("Please complete all fields to continue.");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
       return;
     }
     setIsSubmitting(true);
-    setTimeout(() => {
-      login({ email, name });
-      toast.success("Account created! You're all set.");
-      navigate("/dashboard");
+    
+    const { error } = await signUp(email, password, name);
+    
+    if (error) {
+      toast.error(error.message || "Failed to create account. Please try again.");
       setIsSubmitting(false);
-    }, 900);
+      return;
+    }
+    
+    if (isSupabaseEnabled) {
+      toast.success("Account created! Check your email to verify your account.");
+    } else {
+      toast.success("Account created! You're all set.");
+    }
+    navigate("/dashboard");
+    setIsSubmitting(false);
   };
 
   return (

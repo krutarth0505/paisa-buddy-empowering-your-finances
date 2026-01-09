@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/context/AuthContext";
+import { useTransactions } from "@/hooks/useTransactions";
+import { useGoals } from "@/hooks/useGoals";
+import { useBudgets } from "@/hooks/useBudgets";
+import {
+  generateFinancialInsights,
+  getLocalInsights,
+  isAIConfigured,
+  type FinancialSnapshot,
+  type AIInsight,
+} from "@/lib/ai-service";
 import { 
   Sparkles,
   TrendingUp,
@@ -14,24 +23,18 @@ import {
   CreditCard,
   ArrowRight,
   RefreshCw,
-  Loader2
+  Loader2,
+  CheckCircle,
+  XCircle,
+  Zap,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 
-type Transaction = {
-  id: number;
-  name: string;
-  category: string;
-  amount: number;
-  date: string;
-  type?: string;
-};
-
 const quickActions = [
-  { label: "Set Budget Alert", icon: AlertTriangle },
-  { label: "Review Subscriptions", icon: RefreshCw },
-  { label: "Optimize Savings", icon: PiggyBank },
-  { label: "Update Goals", icon: Target },
+  { label: "Set Budget Alert", icon: AlertTriangle, href: "/budget" },
+  { label: "Review Goals", icon: Target, href: "/goals" },
+  { label: "Add Transaction", icon: CreditCard, href: "/transactions" },
+  { label: "View Settings", icon: PiggyBank, href: "/settings" },
 ];
 
 const parseDate = (raw: string) => {
@@ -47,40 +50,20 @@ const parseDate = (raw: string) => {
   return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
 };
 
-const formatCurrency = (value: number) => `₹${Math.round(value).toLocaleString()}`;
+const formatCurrency = (value: number) => `₹${Math.round(value).toLocaleString('en-IN')}`;
 
 const Insights = () => {
-  const { user } = useAuth();
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { transactions, isLoading: loadingTx } = useTransactions();
+  const { goals } = useGoals();
+  const { budgets } = useBudgets();
+  
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [geminiInsight, setGeminiInsight] = useState("");
-  const [geminiState, setGeminiState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [geminiError, setGeminiError] = useState("");
-
-  const storageKey = user ? `pb-transactions-${user.email}` : "pb-transactions-guest";
-  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
-
-  const loadData = () => {
-    const raw = localStorage.getItem(storageKey);
-    if (raw) {
-      try {
-        const parsed: Transaction[] = JSON.parse(raw);
-        setTransactions(parsed);
-      } catch {
-        setTransactions([]);
-      }
-    } else {
-      setTransactions([]);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, [storageKey]);
+  const [aiInsight, setAiInsight] = useState<AIInsight | null>(null);
+  const [aiState, setAiState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [aiError, setAiError] = useState("");
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    loadData();
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
@@ -157,131 +140,63 @@ const Insights = () => {
     return entries[0]?.amount ? entries[0] : null;
   }, [weeklySpending]);
 
-  const dynamicInsights = useMemo(() => {
-    const items = [] as Array<{ id: number; title: string; description: string; icon: typeof Lightbulb; color: string }>;
-    if (!transactions.length) {
-      items.push({
-        id: 1,
-        title: "No data yet",
-        description: "Import or add transactions to unlock personalized insights.",
-        icon: Lightbulb,
-        color: "bg-muted/40 text-muted-foreground border-border/50",
-      });
-      return items;
-    }
-
-    if (topDay) {
-      items.push({
-        id: 1,
-        title: `Highest spending on ${topDay.day}`,
-        description: `Spent ${formatCurrency(topDay.amount)} on your top weekday. Set a cap for that day to smooth cash flow.`,
-        icon: AlertTriangle,
-        color: "bg-warning/10 text-warning border-warning/20",
-      });
-    }
-
-    if (highestCategory) {
-      items.push({
-        id: 2,
-        title: `Biggest spend: ${highestCategory.category}`,
-        description: `This category totals ${formatCurrency(highestCategory.amount)}. Move it to Needs only when required to trim costs.`,
-        icon: CreditCard,
-        color: "bg-primary/10 text-primary border-primary/20",
-      });
-    }
-
-    items.push({
-      id: 3,
-      title: totals.net >= 0 ? "Positive cash flow" : "Cash flow at risk",
-      description: totals.net >= 0
-        ? `You are net positive by ${formatCurrency(totals.net)}. Consider auto-moving 10% to savings.`
-        : `You are overspending by ${formatCurrency(Math.abs(totals.net))}. Pause wants for a week to get back on track.`,
-      icon: totals.net >= 0 ? TrendingUp : TrendingDown,
-      color: totals.net >= 0 ? "bg-success/10 text-success border-success/20" : "bg-destructive/10 text-destructive border-destructive/30",
-    });
-
-    items.push({
-      id: 4,
-      title: "Savings rate check",
-      description: totals.savingsRate
-        ? `Savings rate: ${totals.savingsRate}%. Aim for +5% by cutting one frequent expense category.`
-        : "No savings yet this period. Route first credit inflow to savings automatically.",
-      icon: PiggyBank,
-      color: "bg-accent/10 text-accent border-accent/20",
-    });
-
-    return items;
-  }, [transactions, topDay, highestCategory, totals]);
-
-  const latestSnapshot = useMemo(() => {
-    const sample = transactions.slice(-20).map((tx) => ({
+  // Build financial snapshot for AI
+  const financialSnapshot: FinancialSnapshot = useMemo(() => ({
+    totals,
+    highestCategory,
+    topDay,
+    recent: transactions.slice(0, 20).map((tx) => ({
       name: tx.name,
       category: tx.category,
       amount: tx.amount,
       date: tx.date,
-    }));
-    return {
-      totals,
-      highestCategory,
-      topDay,
-      recent: sample,
-    };
-  }, [transactions, totals, highestCategory, topDay]);
+    })),
+    goals: goals.map(g => ({
+      name: g.name,
+      current: g.current,
+      target: g.target,
+      progress: g.target > 0 ? Math.round((g.current / g.target) * 100) : 0,
+    })),
+    budgets: budgets.map(b => ({
+      category: b.category,
+      limit: b.limit,
+      spent: b.spent,
+      percentUsed: b.limit > 0 ? Math.round((b.spent / b.limit) * 100) : 0,
+    })),
+  }), [transactions, totals, highestCategory, topDay, goals, budgets]);
 
-  const buildPrompt = () => `You are Google Gemini helping a user understand their finances. Summarize the key risks and opportunities in 3 concise bullet points referencing INR amounts.
+  // Local insights (no API needed)
+  const localInsights = useMemo(() => 
+    getLocalInsights(financialSnapshot),
+  [financialSnapshot]);
 
-Data snapshot:
-${JSON.stringify(latestSnapshot, null, 2)}
-
-Guidelines:
-- Highlight overspending or positive cash flow in plain language.
-- Recommend one concrete action for savings and one for income.
-- Output Markdown with bullet points.`;
-
-  const handleGemini = async () => {
-    if (!geminiKey) {
-      setGeminiState("error");
-      setGeminiError("Add VITE_GEMINI_API_KEY in your .env to enable Gemini.");
+  const handleGenerateAI = async () => {
+    console.log("Generate AI clicked!");
+    console.log("isAIConfigured:", isAIConfigured());
+    console.log("transactions.length:", transactions.length);
+    
+    if (!isAIConfigured()) {
+      setAiState("error");
+      setAiError("Add VITE_OPENROUTER_API_KEY to your .env file to enable AI insights.");
       return;
     }
 
     if (!transactions.length) {
-      setGeminiState("error");
-      setGeminiError("Import or add transactions to request Gemini insights.");
+      setAiState("error");
+      setAiError("Add some transactions first to get AI-powered insights.");
       return;
     }
 
     try {
-      setGeminiState("loading");
-      setGeminiError("");
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${geminiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: buildPrompt() }],
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Gemini request failed");
-      }
-
-      const data = await response.json();
-      const text = data?.candidates?.[0]?.content?.parts?.map((part: { text: string }) => part.text).join("\n");
-
-      if (!text) throw new Error("Empty Gemini response");
-
-      setGeminiInsight(text.trim());
-      setGeminiState("ready");
+      setAiState("loading");
+      setAiError("");
+      const insight = await generateFinancialInsights(financialSnapshot);
+      setAiInsight(insight);
+      setAiState("ready");
     } catch (error) {
-      console.error(error);
-      setGeminiState("error");
-      setGeminiError("Gemini could not generate insight. Check API key/quotas and try again.");
+      console.error("AI insight error:", error);
+      setAiState("error");
+      setAiError(error instanceof Error ? error.message : "Failed to generate insights. Please try again.");
     }
   };
 
@@ -313,57 +228,169 @@ Guidelines:
                   <Sparkles className="w-7 h-7 text-primary-foreground" />
                 </div>
                 <div className="flex-1">
-                  <h2 className="text-xl font-semibold text-foreground mb-2">Monthly Financial Summary</h2>
+                  <h2 className="text-xl font-semibold text-foreground mb-2">Financial Overview</h2>
                   {transactions.length ? (
-                    <p className="text-muted-foreground leading-relaxed">
-                      Net this period: <span className="text-success font-medium">{formatCurrency(totals.net)}</span>. Savings rate <span className="text-success font-medium">{totals.savingsRate}%</span>.{" "}
-                      {highestCategory ? (
-                        <> Top spend: <span className="text-foreground font-medium">{highestCategory.category} ({formatCurrency(highestCategory.amount)})</span>. </>
-                      ) : ""}
-                      {topDay ? (
-                        <> Highest daily spend on <span className="text-foreground font-medium">{topDay.day}</span>. </>
-                      ) : ""}
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground leading-relaxed">
+                        Net this period: <span className={totals.net >= 0 ? "text-success font-medium" : "text-destructive font-medium"}>{formatCurrency(totals.net)}</span>
+                        {" • "}Savings rate <span className={totals.savingsRate >= 20 ? "text-success font-medium" : "text-warning font-medium"}>{totals.savingsRate}%</span>
+                        {highestCategory && (
+                          <> • Top spend: <span className="text-foreground font-medium">{highestCategory.category}</span></>
+                        )}
+                      </p>
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {quickActions.map((action) => {
+                          const Icon = action.icon;
+                          return (
+                            <Button key={action.label} variant="outline" size="sm" className="bg-background/50" asChild>
+                              <a href={action.href}>
+                                <Icon className="w-4 h-4 mr-2" />
+                                {action.label}
+                              </a>
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-muted-foreground">Add or import transactions to see live insights.</p>
+                    <p className="text-muted-foreground">Add or import transactions to see your financial overview.</p>
                   )}
-                  <div className="flex flex-wrap gap-2 mt-4">
-                    {quickActions.map((action) => {
-                      const Icon = action.icon;
-                      return (
-                        <Button key={action.label} variant="outline" size="sm" className="bg-background/50">
-                          <Icon className="w-4 h-4 mr-2" />
-                          {action.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
+          {/* Quick Insights */}
+          {localInsights.length > 0 && (
+            <Card className="border-border/50 mb-8">
+              <CardHeader>
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-warning" />
+                  Quick Insights
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {localInsights.map((insight, idx) => (
+                    <li key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
+                      <Lightbulb className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+                      <span className="text-sm text-foreground">{insight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* AI-Powered Insights */}
           <Card className="border-border/50 mb-8">
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-primary" />
-                  Gemini AI Insight
+                  AI-Powered Analysis
                 </CardTitle>
-                <p className="text-sm text-muted-foreground">Powered by Google Gemini. Configure VITE_GEMINI_API_KEY to enable.</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {isAIConfigured() 
+                    ? "Get personalized insights powered by AI" 
+                    : "Add VITE_OPENROUTER_API_KEY to enable AI features"}
+                </p>
               </div>
-              <Button onClick={handleGemini} disabled={geminiState === "loading"}>
-                {geminiState === "loading" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Sparkles className="w-4 h-4 mr-2" />}
-                Generate
+              <Button 
+                onClick={handleGenerateAI} 
+                disabled={aiState === "loading" || !transactions.length}
+                variant={isAIConfigured() ? "default" : "outline"}
+              >
+                {aiState === "loading" ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-2" />
+                )}
+                {aiState === "loading" ? "Analyzing..." : "Generate Insights"}
               </Button>
             </CardHeader>
             <CardContent>
-              {geminiState === "ready" && geminiInsight ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none whitespace-pre-wrap text-foreground" dangerouslySetInnerHTML={{ __html: geminiInsight.replace(/\n/g, '<br />') }} />
-              ) : geminiState === "error" ? (
-                <p className="text-sm text-destructive">{geminiError}</p>
+              {aiState === "ready" && aiInsight ? (
+                <div className="space-y-6">
+                  {/* Summary */}
+                  <div className="p-4 rounded-xl bg-primary/5 border border-primary/20">
+                    <h4 className="font-medium text-foreground mb-2 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-primary" />
+                      Summary
+                    </h4>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{aiInsight.summary}</p>
+                  </div>
+
+                  {/* Recommendations */}
+                  {aiInsight.recommendations.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4 text-success" />
+                        Recommendations
+                      </h4>
+                      <ul className="space-y-2">
+                        {aiInsight.recommendations.map((rec, idx) => (
+                          <li key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-success/5 border border-success/20">
+                            <ArrowRight className="w-4 h-4 text-success flex-shrink-0 mt-0.5" />
+                            <span className="text-sm text-foreground">{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Warnings */}
+                  {aiInsight.warnings.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-warning" />
+                        Watch Out For
+                      </h4>
+                      <ul className="space-y-2">
+                        {aiInsight.warnings.map((warning, idx) => (
+                          <li key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-warning/5 border border-warning/20">
+                            <XCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                            <span className="text-sm text-foreground">{warning}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Opportunities */}
+                  {aiInsight.opportunities.length > 0 && (
+                    <div>
+                      <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-accent" />
+                        Opportunities
+                      </h4>
+                      <ul className="space-y-2">
+                        {aiInsight.opportunities.map((opp, idx) => (
+                          <li key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-accent/5 border border-accent/20">
+                            <Lightbulb className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" />
+                            <span className="text-sm text-foreground">{opp}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : aiState === "error" ? (
+                <div className="p-4 rounded-xl bg-destructive/5 border border-destructive/20">
+                  <p className="text-sm text-destructive flex items-center gap-2">
+                    <XCircle className="w-4 h-4" />
+                    {aiError}
+                  </p>
+                </div>
               ) : (
-                <p className="text-sm text-muted-foreground">Press Generate to let Gemini review your latest data.</p>
+                <div className="text-center py-8">
+                  <Sparkles className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <p className="text-sm text-muted-foreground">
+                    {transactions.length 
+                      ? "Click 'Generate Insights' to get AI-powered financial analysis" 
+                      : "Add transactions to unlock AI insights"}
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -452,33 +479,6 @@ Guidelines:
                 )}
               </CardContent>
             </Card>
-          </div>
-
-          {/* Insights Grid */}
-          <h2 className="text-xl font-semibold text-foreground mb-4">Personalized Tips</h2>
-          <div className="grid md:grid-cols-2 gap-4">
-            {dynamicInsights.map((insight) => {
-              const Icon = insight.icon;
-              return (
-                <Card 
-                  key={insight.id} 
-                  className={`border ${insight.color.split(' ')[2]} hover:shadow-lg transition-all duration-300 cursor-pointer group`}
-                >
-                  <CardContent className="p-5">
-                    <div className="flex items-start gap-4">
-                      <div className={`w-12 h-12 rounded-xl ${insight.color.split(' ').slice(0,2).join(' ')} flex items-center justify-center flex-shrink-0`}>
-                        <Icon className="w-6 h-6" />
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-foreground mb-1">{insight.title}</h3>
-                        <p className="text-sm text-muted-foreground">{insight.description}</p>
-                      </div>
-                      <ArrowRight className="w-5 h-5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
           </div>
         </div>
       </main>

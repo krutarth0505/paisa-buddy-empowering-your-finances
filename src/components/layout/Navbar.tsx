@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import ThemeToggle from "./ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Menu, X, Wallet, TrendingUp, Target, BarChart3, BookOpen, MessageCircle } from "lucide-react";
+import { Menu, X, Wallet, TrendingUp, Target, BarChart3, BookOpen, MessageCircle, PieChart, Settings } from "lucide-react";
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,6 +15,7 @@ const Navbar = () => {
   const navLinks = [
     { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
     { href: "/transactions", label: "Transactions", icon: Wallet },
+    { href: "/budget", label: "Budget", icon: PieChart },
     { href: "/goals", label: "Goals", icon: Target },
     { href: "/insights", label: "AI Insights", icon: TrendingUp },
     { href: "/learn", label: "Learn", icon: BookOpen },
@@ -63,7 +64,7 @@ const Navbar = () => {
             <ThemeToggle />
             {user ? (
               <>
-                <div className="flex items-center gap-2 px-3 py-1 rounded-lg bg-muted text-sm text-foreground">
+                <Link to="/settings" className="flex items-center gap-2 px-3 py-1 rounded-lg bg-muted text-sm text-foreground hover:bg-muted/80 transition-colors">
                   <Avatar className="h-8 w-8">
                     <AvatarFallback>{user.name?.[0]?.toUpperCase() || "U"}</AvatarFallback>
                   </Avatar>
@@ -71,7 +72,8 @@ const Navbar = () => {
                     <p className="font-medium">{user.name || "User"}</p>
                     <p className="text-xs text-muted-foreground">{user.email}</p>
                   </div>
-                </div>
+                  <Settings className="w-4 h-4 text-muted-foreground" />
+                </Link>
                 <Button variant="outline" size="sm" onClick={() => { logout(); navigate("/"); }}>
                   Logout
                 </Button>
@@ -127,15 +129,20 @@ const Navbar = () => {
               <div className="mt-4 pt-4 border-t border-border/50 flex flex-col gap-3">
                 {user ? (
                   <>
-                    <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted">
+                    <Link
+                      to="/settings"
+                      onClick={() => setIsOpen(false)}
+                      className="flex items-center gap-3 px-4 py-3 rounded-xl bg-muted hover:bg-muted/80 transition-colors"
+                    >
                       <Avatar className="h-9 w-9">
                         <AvatarFallback>{user.name?.[0]?.toUpperCase() || "U"}</AvatarFallback>
                       </Avatar>
-                      <div className="leading-tight">
+                      <div className="leading-tight flex-1">
                         <p className="font-medium text-foreground">{user.name || "User"}</p>
                         <p className="text-xs text-muted-foreground">{user.email}</p>
                       </div>
-                    </div>
+                      <Settings className="w-4 h-4 text-muted-foreground" />
+                    </Link>
                     <Button
                       variant="outline"
                       className="w-full"

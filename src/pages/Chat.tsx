@@ -1,18 +1,19 @@
-import { useState } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTransactions } from "@/hooks/useTransactions";
+import { useGoals } from "@/hooks/useGoals";
+import { useBudgets } from "@/hooks/useBudgets";
+import { askFinancialQuestion, isAIConfigured, type FinancialSnapshot } from "@/lib/ai-service";
 import { 
   Send,
   Sparkles,
   User,
-  Bot,
-  Paperclip,
-  Mic,
-  Phone,
-  Video,
-  MoreVertical
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 
 interface Message {
@@ -20,57 +21,165 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  isLoading?: boolean;
+  isError?: boolean;
 }
 
-const initialMessages: Message[] = [
-  {
-    id: 1,
-    role: "assistant",
-    content: "नमस्ते! 👋 I'm your पैसा Buddy AI assistant. I can help you with budgeting, savings tips, and answer any financial questions. How can I help you today?",
-    timestamp: "10:00 AM",
-  },
-  {
-    id: 2,
-    role: "user",
-    content: "Hi! I want to save money for a trip to Goa. I have ₹25,000 saved already and my target is ₹50,000. Can you help me plan?",
-    timestamp: "10:02 AM",
-  },
-  {
-    id: 3,
-    role: "assistant",
-    content: "Great goal! 🏖️ You're already 50% there! Based on your income pattern, here's my suggestion:\n\n**Recommended Monthly Savings:** ₹5,000\n**Time to Goal:** ~5 months\n\n**Tips to reach faster:**\n1. Cut dining out by 2 times/week = Save ₹2,000\n2. Skip 1 streaming subscription = Save ₹500\n3. Use public transport once/week = Save ₹800\n\nWould you like me to set up automatic transfers to your Goa Trip goal?",
-    timestamp: "10:02 AM",
-  },
-];
-
 const Chat = () => {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const { transactions, totals } = useTransactions();
+  const { goals } = useGoals();
+  const { budgets } = useBudgets();
+  
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 1,
+      role: "assistant",
+      content: "नमस्ते! 👋 I'm your पैसा Buddy AI assistant. I can help you with budgeting, savings tips, and answer any financial questions based on your actual transaction data. How can I help you today?",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    },
+  ]);
   const [input, setInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Build financial snapshot for AI context
+  const financialSnapshot = useMemo((): FinancialSnapshot => {
+    const expensesByCategory: Record<string, number> = {};
+    const expensesByDay: Record<string, number> = {};
+
+    transactions.forEach((tx) => {
+      if (tx.amount < 0) {
+        const cat = tx.category || "Other";
+        expensesByCategory[cat] = (expensesByCategory[cat] || 0) + Math.abs(tx.amount);
+        
+        const day = new Date(tx.date).toLocaleDateString(undefined, { weekday: 'short' });
+        expensesByDay[day] = (expensesByDay[day] || 0) + Math.abs(tx.amount);
+      }
+    });
+
+    const highestCategory = Object.entries(expensesByCategory).sort((a, b) => b[1] - a[1])[0];
+    const topDay = Object.entries(expensesByDay).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      totals: {
+        income: totals.income,
+        expenses: totals.expenses,
+        net: totals.balance,
+        savingsRate: totals.savingsRate,
+      },
+      highestCategory: highestCategory ? { category: highestCategory[0], amount: highestCategory[1] } : null,
+      topDay: topDay ? { day: topDay[0], amount: topDay[1] } : null,
+      recent: transactions.slice(0, 20).map(t => ({
+        name: t.name,
+        category: t.category,
+        amount: t.amount,
+        date: t.date,
+      })),
+      goals: goals.map(g => ({
+        name: g.name,
+        current: g.current,
+        target: g.target,
+        progress: g.target > 0 ? Math.round((g.current / g.target) * 100) : 0,
+      })),
+      budgets: budgets.map(b => ({
+        category: b.category,
+        limit: b.limit,
+        spent: b.spent,
+        percentUsed: b.limit > 0 ? Math.round((b.spent / b.limit) * 100) : 0,
+      })),
+    };
+  }, [transactions, totals, goals, budgets]);
+
+  const handleSend = async () => {
+    if (!input.trim() || isTyping) return;
     
-    const newMessage: Message = {
+    const userMessage: Message = {
       id: messages.length + 1,
       role: "user",
       content: input,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
     
-    setMessages([...messages, newMessage]);
+    setMessages(prev => [...prev, userMessage]);
     setInput("");
+    setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: messages.length + 2,
-        role: "assistant",
-        content: "I'm analyzing your request... This feature will be fully powered by AI once connected to the backend. For now, I can show you the interface! 🚀",
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages(prev => [...prev, aiResponse]);
-    }, 1000);
+    // Add loading message
+    const loadingId = messages.length + 2;
+    setMessages(prev => [...prev, {
+      id: loadingId,
+      role: "assistant",
+      content: "Thinking...",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isLoading: true,
+    }]);
+
+    try {
+      if (!isAIConfigured()) {
+        // Fallback response when AI is not configured
+        setMessages(prev => prev.map(m => 
+          m.id === loadingId ? {
+            ...m,
+            content: "🔧 AI is not configured yet. Add your `VITE_OPENROUTER_API_KEY` to the `.env` file to enable intelligent responses.\n\nIn the meantime, here's what I can tell you:\n\n" + 
+              `📊 **Your Financial Summary:**\n` +
+              `• Income: ₹${totals.income.toLocaleString('en-IN')}\n` +
+              `• Expenses: ₹${totals.expenses.toLocaleString('en-IN')}\n` +
+              `• Savings Rate: ${totals.savingsRate}%\n` +
+              `• Active Goals: ${goals.length}\n` +
+              `• Budget Categories: ${budgets.length}`,
+            isLoading: false,
+          } : m
+        ));
+      } else {
+        const response = await askFinancialQuestion(input, financialSnapshot);
+        setMessages(prev => prev.map(m => 
+          m.id === loadingId ? {
+            ...m,
+            content: response,
+            isLoading: false,
+          } : m
+        ));
+      }
+    } catch (error) {
+      console.error('AI Error:', error);
+      setMessages(prev => prev.map(m => 
+        m.id === loadingId ? {
+          ...m,
+          content: "Sorry, I encountered an error. Please try again.",
+          isLoading: false,
+          isError: true,
+        } : m
+      ));
+    } finally {
+      setIsTyping(false);
+    }
   };
+
+  const retryMessage = (messageId: number) => {
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex > 0) {
+      const userMsg = messages[msgIndex - 1];
+      if (userMsg.role === "user") {
+        setMessages(prev => prev.filter(m => m.id !== messageId));
+        setInput(userMsg.content);
+      }
+    }
+  };
+
+  const quickActions = [
+    "How am I doing financially?",
+    "Tips to save more",
+    "Analyze my spending",
+    "Budget recommendations",
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -87,22 +196,15 @@ const Chat = () => {
                   </div>
                   <div>
                     <h2 className="font-semibold text-foreground">पैसा Buddy AI</h2>
-                    <p className="text-xs text-success flex items-center gap-1">
-                      <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
-                      Online
+                    <p className={`text-xs flex items-center gap-1 ${isAIConfigured() ? 'text-success' : 'text-muted-foreground'}`}>
+                      <span className={`w-2 h-2 rounded-full ${isAIConfigured() ? 'bg-success animate-pulse' : 'bg-muted-foreground'}`} />
+                      {isAIConfigured() ? 'AI Connected' : 'Demo Mode'}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon">
-                    <Phone className="w-5 h-5" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
-                    <Video className="w-5 h-5" />
-                  </Button>
-                  <Button variant="ghost" size="icon">
-                    <MoreVertical className="w-5 h-5" />
-                  </Button>
+                <div className="text-right text-xs text-muted-foreground">
+                  <p>Transactions: {transactions.length}</p>
+                  <p>Goals: {goals.length}</p>
                 </div>
               </div>
             </CardContent>
@@ -118,10 +220,16 @@ const Chat = () => {
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                   message.role === "user" 
                     ? "bg-primary" 
+                    : message.isError
+                    ? "bg-destructive/10"
                     : "gradient-primary shadow-glow"
                 }`}>
                   {message.role === "user" ? (
                     <User className="w-5 h-5 text-primary-foreground" />
+                  ) : message.isLoading ? (
+                    <Loader2 className="w-5 h-5 text-primary-foreground animate-spin" />
+                  ) : message.isError ? (
+                    <AlertCircle className="w-5 h-5 text-destructive" />
                   ) : (
                     <Sparkles className="w-5 h-5 text-primary-foreground" />
                   )}
@@ -130,25 +238,40 @@ const Chat = () => {
                   <div className={`rounded-2xl p-4 ${
                     message.role === "user"
                       ? "bg-primary text-primary-foreground rounded-tr-none"
+                      : message.isError
+                      ? "bg-destructive/10 border border-destructive/20 rounded-tl-none"
                       : "bg-card border border-border rounded-tl-none"
                   }`}>
                     <p className="text-sm whitespace-pre-line">{message.content}</p>
+                    {message.isError && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mt-2 h-7 text-xs"
+                        onClick={() => retryMessage(message.id)}
+                      >
+                        <RefreshCw className="w-3 h-3 mr-1" />
+                        Retry
+                      </Button>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 px-2">{message.timestamp}</p>
                 </div>
               </div>
             ))}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Quick Actions */}
           <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-            {["Show my budget", "Savings tips", "Track expenses", "Investment advice"].map((action) => (
+            {quickActions.map((action) => (
               <Button
                 key={action}
                 variant="outline"
                 size="sm"
                 className="whitespace-nowrap"
                 onClick={() => setInput(action)}
+                disabled={isTyping}
               >
                 {action}
               </Button>
@@ -159,27 +282,26 @@ const Chat = () => {
           <Card className="border-border/50">
             <CardContent className="p-3">
               <div className="flex items-center gap-3">
-                <Button variant="ghost" size="icon" className="flex-shrink-0">
-                  <Paperclip className="w-5 h-5" />
-                </Button>
                 <Input
                   placeholder="Ask me anything about your finances..."
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSend()}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
                   className="border-0 focus-visible:ring-0 bg-transparent"
+                  disabled={isTyping}
                 />
-                <Button variant="ghost" size="icon" className="flex-shrink-0">
-                  <Mic className="w-5 h-5" />
-                </Button>
                 <Button 
                   variant="hero" 
                   size="icon" 
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() || isTyping}
                   className="flex-shrink-0"
                 >
-                  <Send className="w-5 h-5" />
+                  {isTyping ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Send className="w-5 h-5" />
+                  )}
                 </Button>
               </div>
             </CardContent>

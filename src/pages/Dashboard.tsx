@@ -1,13 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Navbar from "@/components/layout/Navbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/context/AuthContext";
+import { useTransactions } from "@/hooks/useTransactions";
+import { useGoals } from "@/hooks/useGoals";
+import { useBudgets } from "@/hooks/useBudgets";
+import { useRecurringTransactions } from "@/hooks/useRecurringTransactions";
+import { useBudgetAlerts } from "@/hooks/useBudgetAlerts";
+import RecurringTransactions from "@/components/dashboard/RecurringTransactions";
 import { Link } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowDownRight,
   ArrowUpRight,
   CreditCard,
+  Loader2,
   PiggyBank,
   Plus,
   Sparkles,
@@ -27,46 +34,17 @@ import {
   YAxis,
   Cell,
 } from "recharts";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 
 const Dashboard = () => {
-  const { user } = useAuth();
-  const [transactions, setTransactions] = useState<Array<{ id: number; name: string; category: string; date: string; amount: number; type?: string }>>([]);
-  const [goals, setGoals] = useState<Array<{ name: string; current: number; target: number; color: string }>>([]);
-
-  const transactionsKey = user ? `pb-transactions-${user.email}` : "pb-transactions-guest";
-  const goalsKey = user ? `pb-goals-${user.email}` : "pb-goals-guest";
-
-  useEffect(() => {
-    const raw = localStorage.getItem(transactionsKey);
-    if (raw) {
-      try {
-        setTransactions(JSON.parse(raw));
-      } catch {
-        setTransactions([]);
-      }
-    } else {
-      setTransactions([]);
-    }
-
-    const rawGoals = localStorage.getItem(goalsKey);
-    if (rawGoals) {
-      try {
-        setGoals(JSON.parse(rawGoals));
-      } catch {
-        setGoals([]);
-      }
-    } else {
-      setGoals([]);
-    }
-  }, [transactionsKey, goalsKey]);
-
-  const totals = useMemo(() => {
-    const income = transactions.filter((t) => t.amount > 0).reduce((sum, t) => sum + t.amount, 0);
-    const expenses = transactions.filter((t) => t.amount < 0).reduce((sum, t) => sum + Math.abs(t.amount), 0);
-    const balance = income - expenses;
-    const savingsRate = income > 0 ? Math.max(0, Math.round(((income - expenses) / income) * 100)) : 0;
-    return { income, expenses, balance, savingsRate };
-  }, [transactions]);
+  const { transactions, isLoading: transactionsLoading, totals } = useTransactions();
+  const { goals, isLoading: goalsLoading } = useGoals();
+  const { budgets } = useBudgets();
+  const { patterns, monthlyRecurringTotal, upcomingThisWeek } = useRecurringTransactions(transactions);
+  const { exceededBudgets, warningBudgets } = useBudgetAlerts(budgets);
+  
+  const isLoading = transactionsLoading || goalsLoading;
 
   const parseDate = (value: string) => {
     const d = new Date(value);
@@ -120,7 +98,63 @@ const Dashboard = () => {
             </Button>
           </div>
 
+          {/* Budget Alerts Banner */}
+          {(exceededBudgets.length > 0 || warningBudgets.length > 0) && (
+            <div className={`mb-6 p-4 rounded-xl border ${
+              exceededBudgets.length > 0 
+                ? "bg-destructive/10 border-destructive/20" 
+                : "bg-amber-500/10 border-amber-500/20"
+            }`}>
+              <div className="flex items-start gap-3">
+                <AlertTriangle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                  exceededBudgets.length > 0 ? "text-destructive" : "text-amber-500"
+                }`} />
+                <div className="flex-1">
+                  <p className="font-medium text-foreground">
+                    {exceededBudgets.length > 0 
+                      ? `${exceededBudgets.length} budget${exceededBudgets.length > 1 ? 's' : ''} exceeded!`
+                      : `${warningBudgets.length} budget${warningBudgets.length > 1 ? 's' : ''} approaching limit`}
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {[...exceededBudgets, ...warningBudgets].slice(0, 3).map((alert) => (
+                      <div key={alert.category} className="flex items-center gap-3">
+                        <span className="text-sm text-muted-foreground w-32 truncate">{alert.category}</span>
+                        <Progress 
+                          value={Math.min(alert.percentUsed, 100)} 
+                          className={`h-2 flex-1 ${alert.percentUsed >= 100 ? "[&>div]:bg-destructive" : "[&>div]:bg-amber-500"}`}
+                        />
+                        <span className="text-xs font-medium w-12 text-right">{alert.percentUsed}%</span>
+                      </div>
+                    ))}
+                  </div>
+                  <Button variant="ghost" size="sm" className="mt-2 h-7 text-xs" asChild>
+                    <Link to="/budget">Manage Budgets</Link>
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {isLoading ? (
+              <>
+                {[...Array(4)].map((_, i) => (
+                  <Card key={i} className="border-border/50">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-2">
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="h-8 w-32" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                        <Skeleton className="w-12 h-12 rounded-2xl" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </>
+            ) : (
+              <>
             <Card className="border-border/50">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -192,6 +226,8 @@ const Dashboard = () => {
                 </div>
               </CardContent>
             </Card>
+              </>
+            )}
           </div>
 
           <div className="grid lg:grid-cols-3 gap-6 mb-8">
@@ -391,6 +427,15 @@ const Dashboard = () => {
                 )}
               </CardContent>
             </Card>
+          </div>
+
+          {/* Recurring Transactions Section */}
+          <div className="mt-6">
+            <RecurringTransactions
+              patterns={patterns}
+              monthlyTotal={monthlyRecurringTotal}
+              upcomingThisWeek={upcomingThisWeek}
+            />
           </div>
         </div>
       </main>

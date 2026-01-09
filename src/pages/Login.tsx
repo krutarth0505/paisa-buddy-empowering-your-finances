@@ -13,22 +13,28 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { signIn, isSupabaseEnabled } = useAuth();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     if (!email || !password) {
-      toast("Please enter your email and password.");
+      toast.error("Please enter your email and password.");
       return;
     }
     setIsSubmitting(true);
-    setTimeout(() => {
-      login({ email, name: email.split("@")[0] || "Guest" });
-      toast.success("Signed in successfully");
-      navigate("/dashboard");
+    
+    const { error } = await signIn(email, password);
+    
+    if (error) {
+      toast.error(error.message || "Failed to sign in. Please try again.");
       setIsSubmitting(false);
-    }, 800);
+      return;
+    }
+    
+    toast.success("Signed in successfully!");
+    navigate("/dashboard");
+    setIsSubmitting(false);
   };
 
   return (
